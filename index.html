@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>An Invitation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ambient canvas: particles live here -->
+  <canvas id="particles"></canvas>
+
+  <!-- radial glow orbs that drift slowly -->
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <!-- ═══════════════════════════════════════
+       SCREEN 1: ENVELOPE
+  ═══════════════════════════════════════ -->
+  <div class="screen active" id="screen-envelope">
+
+    <div class="envelope-wrap" id="envelopeWrap">
+
+      <!-- envelope body -->
+      <div class="envelope" id="envelope">
+
+        <!-- back flap (stays, becomes the body base) -->
+        <div class="env-back"></div>
+
+        <!-- left and right side triangles (decorative fold lines) -->
+        <div class="env-side env-side-left"></div>
+        <div class="env-side env-side-right"></div>
+
+        <!-- bottom triangle -->
+        <div class="env-bottom"></div>
+
+        <!-- the flap that opens upward -->
+        <div class="env-flap" id="envFlap"></div>
+
+        <!-- letter inside, peeks out during open -->
+        <div class="env-letter" id="envLetter">
+          <div class="env-letter-inner">
+            <span class="letter-initial"> For you... </span>
+          </div>
+        </div>
+
+        <!-- wax seal button -->
+        <button class="seal" id="sealBtn" aria-label="Open the invitation">
+          <span class="seal-label">Open</span>
+          <span class="seal-ring"></span>
+          <span class="seal-ring seal-ring-2"></span>
+        </button>
+
+      </div>
+
+      <p class="envelope-hint">Press the seal</p>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       SCREEN 2: CINEMATIC SCENES
+  ═══════════════════════════════════════ -->
+  <div class="screen" id="screen-scenes">
+
+    <!-- progress dots -->
+    <div class="progress-dots" id="progressDots"></div>
+
+    <!-- scene container (scenes are injected here by JS) -->
+    <div class="scene-stage" id="sceneStage">
+      <div class="scene-text-wrap">
+        <p class="scene-text" id="sceneText"></p>
+        <span class="cursor" id="cursor">|</span>
+      </div>
+    </div>
+
+    <!-- next button (appears after typing completes) -->
+    <button class="next-btn" id="nextBtn" aria-label="Continue">
+      <span class="next-line"></span>
+      <span class="next-label">continue</span>
+      <span class="next-line"></span>
+    </button>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       SCREEN 3: THE QUESTION
+  ═══════════════════════════════════════ -->
+  <div class="screen" id="screen-question">
+
+    <div class="question-wrap" id="questionWrap">
+      <div class="question-eyebrow">— for you —</div>
+      <h1 class="question-headline" id="questionHeadline"></h1>
+      <div class="question-actions" id="questionActions">
+        <button class="btn-yes" id="btnYes">Yes ❤️</button>
+        <button class="btn-no"  id="btnNo">No</button>
+      </div>
+    </div>
+
+    <!-- celebration burst (shown on yes) -->
+    <div class="celebration" id="celebration"></div>
+
+    <!-- final message (shown on yes) -->
+    <div class="final-msg" id="finalMsg">
+      <p class="final-text" id="finalText"></p>
+    </div>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
