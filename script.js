@@ -814,4 +814,27 @@
     });
   }
 
+emailjs.init("WzUw0nlFdFU4v3RWv");
+
+// 2. Find your Yes button (Make sure your HTML button has id="yesBtn")
+const yesButton = document.getElementById('yesBtn');
+
+// 3. Send email when she clicks Yes
+if (yesButton) {
+  yesButton.addEventListener('click', () => {
+      yesButton.innerText = "Sending... ❤️";
+      
+      emailjs.send('service_b73vtwk', '__ejs-test-mail-service__', {
+          message: "She said YES to your date!"
+      })
+      .then(() => {
+          alert("Yay! It's a date! 🥰"); 
+      })
+      .catch((err) => {
+          alert("Something went wrong, but she still says yes! 😉");
+      });
+  });
+}
+
+
 })();
