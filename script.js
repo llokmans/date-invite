@@ -814,7 +814,7 @@
     });
   }
 
-emailjs.init("WzUwOnlFdFU4v3RWv");
+emailjs.init("P0N1mVYMaYicQ25OA");
 
 // 2. Find your Yes button (Make sure your HTML button has id="yesBtn")
 const yesButton = document.getElementById('yesBtn');
