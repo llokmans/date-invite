@@ -219,8 +219,8 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 /* ── WAX SEAL ── */
 .seal {
   position: absolute;
-  bottom: -18px;
-  left: 50%; transform: translateX(-50%);
+  top: 50%;
+  left: 50%; transform: translate(-50%, -50%);
   width: 60px; height: 60px;
   border-radius: 50%;
   background: radial-gradient(circle at 38% 35%, #b22340, #8b1a2e 55%, #5e0f1e);
