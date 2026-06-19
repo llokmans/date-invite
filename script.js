@@ -77,102 +77,128 @@
 
 
   /* ════════════════════════════════════════
-     MUSIC BOX  (Web Audio API)
-     A gentle looping melody — delicate, fairytale-like.
+     SOFT PIANO  (Web Audio API)
+     Slow, emotional, few notes — lots of silence.
+     Three layers per note: fundamental + warm harmonic + deep bass resonance.
+     Long reverb tail so notes breathe into each other.
      Starts on first interaction, loops until Yes.
   ════════════════════════════════════════ */
-  let audioCtx       = null;
-  let musicStarted   = false;
-  let musicStopped   = false;
-  let masterGain     = null;
+  let audioCtx     = null;
+  let musicStarted = false;
+  let musicStopped = false;
+  let masterGain   = null;
+  let reverbNode   = null;
 
-  // Melody: a short romantic phrase in C major / A minor
-  // Each entry: [midi note, duration in beats, slight timing humanisation]
-  // Tempo: ~72 bpm → 1 beat = ~833ms
-  const BEAT        = 0.82;   // seconds per beat (slightly slower = more dreamy)
-  const MELODY = [
-    // phrase 1 — ascending question
-    [64, 0.5], [67, 0.5], [69, 1.0], [72, 1.5],
-    // breath
-    [null, 0.5],
-    // phrase 2 — descending answer
-    [71, 0.5], [69, 0.5], [67, 1.0], [64, 1.0],
-    // breath
-    [null, 0.5],
-    // phrase 3 — rise and linger
-    [60, 0.5], [64, 0.5], [67, 0.5], [72, 0.5], [76, 2.0],
-    // breath
-    [null, 1.0],
-    // phrase 4 — gentle resolution
-    [74, 0.5], [72, 0.5], [69, 0.5], [67, 0.5], [64, 2.5],
-    // long breath before loop
-    [null, 1.5],
-  ];
-
-  // Convert MIDI note to frequency
   function midiToHz(midi) {
     return 440 * Math.pow(2, (midi - 69) / 12);
   }
 
-  // Total loop duration in seconds
-  const LOOP_DURATION = MELODY.reduce((sum, [, dur]) => sum + dur * BEAT, 0);
+  // Long hall reverb — piano needs space to breathe
+  function buildReverb(ctx) {
+    const conv   = ctx.createConvolver();
+    const length = ctx.sampleRate * 3.2; // 3.2s tail — large, warm room
+    const buf    = ctx.createBuffer(2, length, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        // early reflections stronger, late tail soft
+        const decay = Math.pow(1 - i / length, 1.8);
+        d[i] = (Math.random() * 2 - 1) * decay;
+      }
+    }
+    conv.buffer = buf;
+    return conv;
+  }
+
+  // Piano melody — slow, sparse, emotional
+  // C# minor / E major — naturally melancholic and tender
+  // [midi, beats]   null = silence   BEAT = 1.15s (~52 bpm, very slow)
+  const BEAT = 1.15;
+  const MELODY = [
+    // opening — three notes, then silence to let them ring
+    [61, 1.0], [64, 1.0], [68, 2.5],
+    [null, 2.0],
+
+    // second phrase — step down, one note held long
+    [66, 1.0], [64, 1.0], [61, 3.5],
+    [null, 1.5],
+
+    // third phrase — rises with hope
+    [61, 0.75], [63, 0.75], [66, 0.75], [68, 2.5],
+    [null, 1.5],
+
+    // fourth phrase — resolves gently downward
+    [66, 1.0], [63, 1.0], [59, 1.0], [61, 3.5],
+    [null, 3.0], // long silence before loop — feels like a breath
+  ];
+
+  const LOOP_DURATION = MELODY.reduce((sum, [, d]) => sum + d * BEAT, 0);
 
   /**
-   * Schedule the entire melody phrase starting at `startTime` (audioCtx time).
-   * A music box note: sine osc + very fast attack + slow exponential decay
-   * + a tiny triangle undertone for body, slight detune per note for hand-wound feel.
+   * One piano note = three oscillator layers:
+   *   1. Fundamental  (sine)     — the main pitch, soft attack, long sustain
+   *   2. 2nd harmonic (sine ×2)  — adds brightness, quieter
+   *   3. Bass body    (triangle) — one octave down, very soft, felt not heard
+   *
+   * Piano attack: slightly slower than a music box (8–12ms) — key pressing a hammer
+   * Piano decay:  long and natural — sustain pedal feel
    */
+  function scheduleNote(midi, t, dur) {
+    const hz      = midiToHz(midi);
+    const sustain = Math.max(dur * BEAT * 1.8, 4.0); // notes ring well past their beat
+    const attack  = 0.012;                            // soft hammer attack
+
+    function layer(freq, type, peak, decayMul) {
+      const osc  = audioCtx.createOscillator();
+      const gDry = audioCtx.createGain();
+      const gWet = audioCtx.createGain();
+
+      osc.type            = type;
+      osc.frequency.value = freq;
+      // very slight detune per note — piano strings are never perfectly tuned
+      osc.detune.value    = (Math.random() - 0.5) * 6;
+
+      // dry signal
+      osc.connect(gDry);
+      gDry.connect(masterGain);
+      gDry.gain.setValueAtTime(0, t);
+      gDry.gain.linearRampToValueAtTime(peak, t + attack);
+      gDry.gain.setValueAtTime(peak * 0.7, t + attack + 0.05); // slight initial drop (piano characteristic)
+      gDry.gain.exponentialRampToValueAtTime(0.0001, t + sustain * decayMul);
+
+      // reverb send
+      osc.connect(gWet);
+      gWet.connect(reverbNode);
+      gWet.gain.setValueAtTime(0, t);
+      gWet.gain.linearRampToValueAtTime(peak * 0.4, t + attack);
+      gWet.gain.exponentialRampToValueAtTime(0.0001, t + sustain * decayMul * 1.3);
+
+      osc.start(t);
+      osc.stop(t + sustain * decayMul + 0.2);
+    }
+
+    layer(hz,      'sine',     0.26, 1.0);   // fundamental
+    layer(hz * 2,  'sine',     0.07, 0.6);   // 2nd harmonic (brightness)
+    layer(hz / 2,  'triangle', 0.05, 0.5);   // bass body (warmth)
+  }
+
   function scheduleMelody(startTime) {
     if (!audioCtx || musicStopped) return;
 
     let t = startTime;
-
     MELODY.forEach(([midi, dur]) => {
       const noteDur = dur * BEAT;
-
       if (midi !== null) {
-        const hz       = midiToHz(midi);
-        // slight random detune ±2 cents — feels imperfect, mechanical
-        const detune   = (Math.random() - 0.5) * 4;
-        // slight timing humanisation ±20ms
-        const jitter   = (Math.random() - 0.5) * 0.04;
-        const noteTime = t + jitter;
-
-        // — main tine (sine, bright) —
-        const osc1  = audioCtx.createOscillator();
-        const gain1 = audioCtx.createGain();
-        osc1.connect(gain1);
-        gain1.connect(masterGain);
-        osc1.type = 'sine';
-        osc1.frequency.value = hz;
-        osc1.detune.value    = detune;
-        gain1.gain.setValueAtTime(0, noteTime);
-        gain1.gain.linearRampToValueAtTime(0.22, noteTime + 0.008); // sharp pluck
-        gain1.gain.exponentialRampToValueAtTime(0.0001, noteTime + noteDur * 0.9);
-        osc1.start(noteTime);
-        osc1.stop(noteTime + noteDur);
-
-        // — body undertone (triangle, one octave down, very soft) —
-        const osc2  = audioCtx.createOscillator();
-        const gain2 = audioCtx.createGain();
-        osc2.connect(gain2);
-        gain2.connect(masterGain);
-        osc2.type = 'triangle';
-        osc2.frequency.value = hz / 2;
-        gain2.gain.setValueAtTime(0, noteTime);
-        gain2.gain.linearRampToValueAtTime(0.06, noteTime + 0.01);
-        gain2.gain.exponentialRampToValueAtTime(0.0001, noteTime + noteDur * 0.6);
-        osc2.start(noteTime);
-        osc2.stop(noteTime + noteDur);
+        // humanise timing slightly — no two notes land exactly on the grid
+        const jitter = (Math.random() - 0.5) * 0.028;
+        scheduleNote(midi, t + jitter, dur);
       }
-
       t += noteDur;
     });
 
-    // schedule next loop just before this one ends
+    // reschedule loop just before end
     if (!musicStopped) {
-      const loopAt = startTime + LOOP_DURATION - 0.1;
-      const delay  = (loopAt - audioCtx.currentTime) * 1000;
+      const delay = (startTime + LOOP_DURATION - audioCtx.currentTime - 0.2) * 1000;
       setTimeout(() => {
         if (!musicStopped) scheduleMelody(audioCtx.currentTime + 0.05);
       }, Math.max(0, delay));
@@ -185,24 +211,29 @@
 
     audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.0;
+    masterGain.gain.value = 0;
     masterGain.connect(audioCtx.destination);
+
+    reverbNode = buildReverb(audioCtx);
+    const wetOut = audioCtx.createGain();
+    wetOut.gain.value = 0.5; // generous reverb mix — piano lives in the room
+    reverbNode.connect(wetOut);
+    wetOut.connect(masterGain);
 
     if (audioCtx.state === 'suspended') audioCtx.resume();
 
-    // fade in gently over 2 seconds so it doesn't startle
-    masterGain.gain.linearRampToValueAtTime(0.7, audioCtx.currentTime + 2);
+    // fade in slowly — piano enters like someone sitting down quietly
+    masterGain.gain.linearRampToValueAtTime(0.75, audioCtx.currentTime + 3.0);
 
-    scheduleMelody(audioCtx.currentTime + 0.1);
+    scheduleMelody(audioCtx.currentTime + 0.3);
   }
 
   function stopMusic() {
     if (!audioCtx || musicStopped) return;
     musicStopped = true;
-    // fade out over 1.5s then suspend
     masterGain.gain.setValueAtTime(masterGain.gain.value, audioCtx.currentTime);
-    masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1.5);
-    setTimeout(() => audioCtx.suspend(), 1600);
+    masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 2.5);
+    setTimeout(() => audioCtx.suspend(), 2600);
   }
 
   // start on first interaction (browser requires gesture before AudioContext)
@@ -523,29 +554,154 @@
       if (yesFired) return;
       yesFired = true;
 
-      // stop the music — the moment has arrived
       stopMusic();
 
-      // fade out the question
       wrap.style.transition    = 'opacity 0.6s ease';
       wrap.style.opacity       = '0';
       wrap.style.pointerEvents = 'none';
 
-      // sparks burst
       fireSparks();
-
-      // rose petals cascade
       setTimeout(() => startRosePetals(), 300);
+      setTimeout(() => showDatePicker(), 1800);
+    }
 
-      // final message
-      const endings = [
-        "Then it's settled.\nI'll be counting the minutes.",
-        "Wonderful.\nI'll make it worth your while.",
-        "Good.\nI was hoping you'd say that.",
+    /* ── date + time picker ── */
+    function showDatePicker() {
+      const old = document.getElementById('datePickerWrap');
+      if (old) old.remove();
+
+      const dpWrap = document.createElement('div');
+      dpWrap.id = 'datePickerWrap';
+
+      let viewYear  = new Date().getFullYear();
+      let viewMonth = new Date().getMonth();
+      let selectedDate = null;
+      let selectedTime = null;
+
+      const MONTHS   = ['January','February','March','April','May','June',
+                        'July','August','September','October','November','December'];
+      const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const DAYS     = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+      const TIME_SLOTS = [
+        '12:00 PM','1:00 PM','2:00 PM','3:00 PM','4:00 PM',
+        '5:00 PM','6:00 PM','7:00 PM','8:00 PM','9:00 PM','10:00 PM',
       ];
-      finalText.innerHTML = endings[Math.floor(Math.random() * endings.length)]
-        .split('\n').join('<br>');
-      setTimeout(() => finalMsg.classList.add('show'), 700);
+
+      function renderCalendar() {
+        const firstDay    = new Date(viewYear, viewMonth, 1).getDay();
+        const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+        const today       = new Date(); today.setHours(0,0,0,0);
+        let cells = '';
+        DAYS.forEach(d => { cells += `<div class="dp-day-hdr">${d}</div>`; });
+        for (let i = 0; i < firstDay; i++) cells += `<div></div>`;
+        for (let d = 1; d <= daysInMonth; d++) {
+          const thisDate   = new Date(viewYear, viewMonth, d);
+          const isPast     = thisDate < today;
+          const isSelected = selectedDate &&
+            selectedDate.getFullYear() === viewYear &&
+            selectedDate.getMonth()    === viewMonth &&
+            selectedDate.getDate()     === d;
+          cells += `<div class="dp-cell${isPast ? ' dp-past' : ''}${isSelected ? ' dp-selected' : ''}"
+                        data-day="${d}" data-past="${isPast}">${d}</div>`;
+        }
+        return `
+          <div class="dp-cal-header">
+            <button class="dp-nav" id="dpPrev">&#8592;</button>
+            <span class="dp-month-label">${MONTHS[viewMonth]} ${viewYear}</span>
+            <button class="dp-nav" id="dpNext">&#8594;</button>
+          </div>
+          <div class="dp-grid">${cells}</div>`;
+      }
+
+      function renderTimeSlots() {
+        return TIME_SLOTS.map(t =>
+          `<button class="dp-time${selectedTime === t ? ' dp-time-selected' : ''}" data-time="${t}">${t}</button>`
+        ).join('');
+      }
+
+      function renderConfirm() {
+        const ready = selectedDate && selectedTime;
+        const label = ready
+          ? `${MONTHS[selectedDate.getMonth()]} ${selectedDate.getDate()}, ${selectedDate.getFullYear()} · ${selectedTime}`
+          : 'Pick a date and time above';
+        return `
+          <div class="dp-summary${ready ? ' dp-summary-ready' : ''}">${label}</div>
+          <button class="dp-confirm${ready ? ' dp-confirm-ready' : ''}" id="dpConfirm" ${ready ? '' : 'disabled'}>
+            Confirm ❤️
+          </button>`;
+      }
+
+      function render() {
+        dpWrap.innerHTML = `
+          <div class="dp-inner">
+            <p class="dp-eyebrow">— when are you free? —</p>
+            <div class="dp-cal" id="dpCal">${renderCalendar()}</div>
+            <div class="dp-time-wrap" id="dpTimeWrap">${renderTimeSlots()}</div>
+            <div class="dp-confirm-wrap" id="dpConfirmWrap">${renderConfirm()}</div>
+          </div>`;
+
+        dpWrap.querySelector('#dpPrev').addEventListener('click', () => {
+          viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+          dpWrap.querySelector('#dpCal').innerHTML = renderCalendar();
+          bindCalCells();
+        });
+        dpWrap.querySelector('#dpNext').addEventListener('click', () => {
+          viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+          dpWrap.querySelector('#dpCal').innerHTML = renderCalendar();
+          bindCalCells();
+        });
+
+        bindCalCells();
+        bindTimeCells();
+      }
+
+      function bindCalCells() {
+        dpWrap.querySelectorAll('.dp-cell').forEach(cell => {
+          if (cell.dataset.past === 'true') return;
+          cell.addEventListener('click', () => {
+            selectedDate = new Date(viewYear, viewMonth, parseInt(cell.dataset.day));
+            dpWrap.querySelector('#dpCal').innerHTML = renderCalendar();
+            bindCalCells();
+            dpWrap.querySelector('#dpConfirmWrap').innerHTML = renderConfirm();
+            bindConfirm();
+          });
+        });
+      }
+
+      function bindTimeCells() {
+        dpWrap.querySelectorAll('.dp-time').forEach(btn => {
+          btn.addEventListener('click', () => {
+            selectedTime = btn.dataset.time;
+            dpWrap.querySelectorAll('.dp-time').forEach(b => b.classList.remove('dp-time-selected'));
+            btn.classList.add('dp-time-selected');
+            dpWrap.querySelector('#dpConfirmWrap').innerHTML = renderConfirm();
+            bindConfirm();
+          });
+        });
+      }
+
+      function bindConfirm() {
+        const btn = dpWrap.querySelector('#dpConfirm');
+        if (!btn || btn.disabled) return;
+        btn.addEventListener('click', () => showFinalConfirmation(selectedDate, selectedTime, MONTHS, WEEKDAYS));
+      }
+
+      render();
+      document.getElementById('screen-question').appendChild(dpWrap);
+      requestAnimationFrame(() => requestAnimationFrame(() => dpWrap.classList.add('dp-visible')));
+    }
+
+    function showFinalConfirmation(date, time, MONTHS, WEEKDAYS) {
+      const picker = document.getElementById('datePickerWrap');
+      if (picker) {
+        picker.style.transition = 'opacity 0.6s ease';
+        picker.style.opacity    = '0';
+        setTimeout(() => picker.remove(), 700);
+      }
+      const dateStr = `${WEEKDAYS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()} · ${time}`;
+      const text    = document.getElementById('finalText');
+      text.innerHTML = `${dateStr}<br><br><em>I'll pick you up!</em>`;
+      setTimeout(() => document.getElementById('finalMsg').classList.add('show'), 500);
     }
 
     function fireSparks() {
