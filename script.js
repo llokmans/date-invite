@@ -436,9 +436,11 @@
   ════════════════════════════════════════ */
   const SCENES = [
     "Hey…\nI've been meaning to ask you something.",
-    "You've been on my mind lately.",
-    "Every conversation with you feels different.\nSpecial.",
-    "So I wanted to ask you\nsomething important…",
+    "I know this will sound crazy, but... I have been thinking...",
+    "Damn..",
+    "Why is this so hard...?",
+    "I don't even know how to say this... but I just have to ask.",
+    "Something..\nsomething important…",
   ];
 
   function initScenes() {
@@ -482,7 +484,7 @@
             if (text[i] === '\n') sceneText.appendChild(document.createElement('br'));
             else sceneText.appendChild(document.createTextNode(text[i]));
             i++;
-            setTimeout(typeChar, 38 + (Math.random() * 20 - 10));
+            setTimeout(typeChar, 75 + (Math.random() * 40 - 10));
           } else {
             typing = false;
             cursor.classList.add('hidden');

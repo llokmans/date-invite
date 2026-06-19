@@ -486,8 +486,8 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   font-style: italic;
   padding: 14px 28px;
   border-radius: 3px;
-  border: 1px solid rgba(139,26,46,0.45);
-  color: rgba(178,35,64,0.75);
+  border: 1px solid rgb(255, 250, 250);
+  color: rgba(252, 249, 250, 0.986);
   letter-spacing: 0.03em;
   transition: transform 0.35s cubic-bezier(.2,.8,.2,1),
               left 0.35s cubic-bezier(.2,.8,.2,1),
