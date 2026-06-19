@@ -814,7 +814,7 @@
     });
   }
 
-emailjs.init("WzUw0nlFdFU4v3RWv");
+emailjs.init("WzUwOnlFdFU4v3RWv");
 
 // 2. Find your Yes button (Make sure your HTML button has id="yesBtn")
 const yesButton = document.getElementById('yesBtn');
@@ -824,9 +824,13 @@ if (yesButton) {
   yesButton.addEventListener('click', () => {
       yesButton.innerText = "Sending... ❤️";
       
-      emailjs.send('service_b73vtwk', '__ejs-test-mail-service__', {
-          message: "She said YES to your date!"
-      })
+      // These pass data smoothly to your '{{name}}' and '{{message}}' template fields
+      const templateParams = {
+          name: "Your Crush",
+          message: "She clicked YES to your cinematic date invitation!"
+      };
+
+      emailjs.send('service_b73vtwk', 'contact', templateParams)
       .then(() => {
           alert("Yay! It's a date! 🥰"); 
       })
