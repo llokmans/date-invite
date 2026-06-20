@@ -492,18 +492,45 @@
 
     let yesFired = false;
 
+    function playCinematicYes() {
+      const overlay = document.createElement('div');
+      overlay.id = 'cinematicYes';
+      overlay.className = 'cinematic-yes';
+      overlay.setAttribute('aria-hidden', 'true');
+      overlay.innerHTML = `
+        <div class="cine-bar cine-bar-top"></div>
+        <div class="cine-bar cine-bar-bottom"></div>
+        <div class="cine-vignette"></div>
+        <div class="cine-bloom"></div>
+        <div class="cine-shockwave"></div>
+        <div class="cine-shockwave cine-shockwave-2"></div>
+        <div class="cine-shockwave cine-shockwave-3"></div>
+        <p class="cine-text">yes.</p>
+        <div class="cine-heart" aria-hidden="true">❤</div>`;
+      document.body.appendChild(overlay);
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add('cine-active'));
+      });
+
+      setTimeout(() => overlay.classList.add('cine-reveal'), 80);
+      setTimeout(() => overlay.classList.add('cine-exit'), 2400);
+      setTimeout(() => overlay.remove(), 3400);
+    }
+
     function handleYes() {
       if (yesFired) return;
       yesFired = true;
       stopMusic();
 
-      wrap.style.transition    = 'opacity 0.6s ease';
+      wrap.style.transition    = 'opacity 0.45s ease';
       wrap.style.opacity       = '0';
       wrap.style.pointerEvents = 'none';
 
-      fireSparks();
-      setTimeout(() => startRosePetals(), 300);
-      setTimeout(() => showDatePicker(), 1800);
+      playCinematicYes();
+      setTimeout(() => fireSparks(), 400);
+      setTimeout(() => startRosePetals(), 850);
+      setTimeout(() => showDatePicker(), 3400);
     }
 
     function showDatePicker() {
