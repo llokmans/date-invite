@@ -1,5 +1,6 @@
 /**
  * Cinematic Date Invitation Engine
+ * Hardened: mobile audio fix + silent EmailJS + bindConfirm cleanup
  */
 
 ;(function () {
@@ -76,6 +77,8 @@
 
   /* ════════════════════════════════════════
      SOFT PIANO AUDIO ENGINE
+     Mobile fix: AudioContext created synchronously
+     on first gesture, not in a callback chain.
   ════════════════════════════════════════ */
   let audioCtx     = null;
   let musicStarted = false;
@@ -167,22 +170,48 @@
     }
   }
 
+  /**
+   * MOBILE FIX:
+   * Create the AudioContext synchronously right here.
+   * Call this directly inside a user gesture handler (touchstart/click)
+   * before any async code runs. This is what Safari and Chrome on mobile require.
+   */
+  function unlockAudio() {
+    if (audioCtx) return; // already created
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) {
+      console.warn('AudioContext creation failed:', e);
+      return;
+    }
+  }
+
   function startMusic() {
     if (musicStarted) return;
+    if (!audioCtx) return; // safety — should never happen after unlockAudio()
     musicStarted = true;
-    audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+
     masterGain = audioCtx.createGain();
     masterGain.gain.value = 0;
     masterGain.connect(audioCtx.destination);
+
     reverbNode = buildReverb(audioCtx);
     const wetOut = audioCtx.createGain();
     wetOut.gain.value = 0.5;
     reverbNode.connect(wetOut);
     wetOut.connect(masterGain);
 
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    masterGain.gain.linearRampToValueAtTime(0.75, audioCtx.currentTime + 3.0);
-    scheduleMelody(audioCtx.currentTime + 0.3);
+    // Resume in case browser suspended it (common on iOS)
+    const doStart = () => {
+      masterGain.gain.linearRampToValueAtTime(0.75, audioCtx.currentTime + 3.0);
+      scheduleMelody(audioCtx.currentTime + 0.3);
+    };
+
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().then(doStart).catch(e => console.warn('Audio resume failed:', e));
+    } else {
+      doStart();
+    }
   }
 
   function stopMusic() {
@@ -190,16 +219,8 @@
     musicStopped = true;
     masterGain.gain.setValueAtTime(masterGain.gain.value, audioCtx.currentTime);
     masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 2.5);
-    setTimeout(() => audioCtx.suspend(), 2600);
+    setTimeout(() => { try { audioCtx.suspend(); } catch(e) {} }, 2600);
   }
-
-  function onFirstInteraction() {
-    startMusic();
-    document.removeEventListener('click',      onFirstInteraction);
-    document.removeEventListener('touchstart', onFirstInteraction);
-  }
-  document.addEventListener('click',      onFirstInteraction);
-  document.addEventListener('touchstart', onFirstInteraction, { passive: true });
 
 
   /* ════════════════════════════════════════
@@ -207,7 +228,7 @@
   ════════════════════════════════════════ */
   function startRosePetals() {
     const canvas = document.createElement('canvas');
-    canvas.style.cssText = 'position: fixed; inset: 0; z-index: 30; pointer-events: none; width: 100%; height: 100%;';
+    canvas.style.cssText = 'position:fixed;inset:0;z-index:30;pointer-events:none;width:100%;height:100%;';
     document.body.appendChild(canvas);
 
     const ctx = canvas.getContext('2d');
@@ -219,32 +240,35 @@
       H = canvas.height = window.innerHeight;
     });
 
-    const PETAL_COLORS = ['#c0394e', '#a8253a', '#d4556a', '#e87a8a', '#b83050', '#f0a0b0', '#c9a84c'];
+    const PETAL_COLORS = ['#c0394e','#a8253a','#d4556a','#e87a8a','#b83050','#f0a0b0','#c9a84c'];
     const petals = [];
 
     function createPetal() {
       return {
-        x:      Math.random() * W,
-        y:      -(20 + Math.random() * 80),
-        w:      8  + Math.random() * 14,
-        h:      5  + Math.random() * 8,
-        vx:     (Math.random() - 0.5) * 1.2,
-        vy:     1.2 + Math.random() * 2.2,
-        angle:  Math.random() * Math.PI * 2,
-        spin:   (Math.random() - 0.5) * 0.06,
-        sway:   Math.random() * Math.PI * 2,
-        swayAmt:0.4 + Math.random() * 0.8,
-        color:  PETAL_COLORS[Math.floor(Math.random() * PETAL_COLORS.length)],
-        alpha:  0.7 + Math.random() * 0.3,
-        delay:  Math.random() * 120,
-        active: false,
+        x:       Math.random() * W,
+        y:       -(20 + Math.random() * 80),
+        w:       8  + Math.random() * 14,
+        h:       5  + Math.random() * 8,
+        vx:      (Math.random() - 0.5) * 1.2,
+        vy:      1.2 + Math.random() * 2.2,
+        angle:   Math.random() * Math.PI * 2,
+        spin:    (Math.random() - 0.5) * 0.06,
+        sway:    Math.random() * Math.PI * 2,
+        swayAmt: 0.4 + Math.random() * 0.8,
+        color:   PETAL_COLORS[Math.floor(Math.random() * PETAL_COLORS.length)],
+        alpha:   0.7 + Math.random() * 0.3,
+        delay:   Math.random() * 120,
+        active:  false,
       };
     }
 
     for (let i = 0; i < 90; i++) petals.push(createPetal());
+    let frame = 0, running = true;
 
-    let frame = 0;
-    let running = true;
+    function lighten(hex, amt) {
+      const n = parseInt(hex.slice(1), 16);
+      return `rgb(${Math.min(255,(n>>16)+amt)},${Math.min(255,((n>>8)&0xff)+amt)},${Math.min(255,(n&0xff)+amt)})`;
+    }
 
     function drawPetal(p) {
       ctx.save();
@@ -252,23 +276,13 @@
       ctx.rotate(p.angle);
       ctx.globalAlpha = p.alpha;
       ctx.beginPath();
-      ctx.ellipse(0, 0, p.w / 2, p.h / 2, 0, 0, Math.PI * 2);
-
-      const grad = ctx.createRadialGradient(-p.w * 0.1, -p.h * 0.1, 0, p.w * 0.3, p.h * 0.3, p.w * 0.7);
+      ctx.ellipse(0, 0, p.w/2, p.h/2, 0, 0, Math.PI*2);
+      const grad = ctx.createRadialGradient(-p.w*0.1,-p.h*0.1,0,p.w*0.3,p.h*0.3,p.w*0.7);
       grad.addColorStop(0, lighten(p.color, 30));
       grad.addColorStop(1, p.color);
-
       ctx.fillStyle = grad;
       ctx.fill();
       ctx.restore();
-    }
-
-    function lighten(hex, amt) {
-      const n = parseInt(hex.slice(1), 16);
-      const r = Math.min(255, (n >> 16) + amt);
-      const g = Math.min(255, ((n >> 8) & 0xff) + amt);
-      const b = Math.min(255, (n & 0xff) + amt);
-      return `rgb(${r},${g},${b})`;
     }
 
     function tick() {
@@ -280,16 +294,12 @@
       petals.forEach(p => {
         if (frame < p.delay) { allGone = false; return; }
         p.active = true;
-        p.x    += p.vx + Math.sin(p.sway) * p.swayAmt;
-        p.y    += p.vy;
-        p.sway += 0.03;
+        p.x     += p.vx + Math.sin(p.sway) * p.swayAmt;
+        p.y     += p.vy;
+        p.sway  += 0.03;
         p.angle += p.spin;
-
         if (p.y > H * 0.8) p.alpha = Math.max(0, p.alpha - 0.012);
-        if (p.y < H + 30 && p.alpha > 0) {
-          allGone = false;
-          drawPetal(p);
-        }
+        if (p.y < H + 30 && p.alpha > 0) { allGone = false; drawPetal(p); }
       });
 
       if (allGone && frame > 200) {
@@ -314,7 +324,8 @@
     question: document.getElementById('screen-question'),
   };
 
-  function transitionTo(nextKey, delay = 0) {
+  function transitionTo(nextKey, delay) {
+    delay = delay || 0;
     const current = document.querySelector('.screen.active');
     if (!current) return;
     setTimeout(() => {
@@ -337,6 +348,12 @@
     const hint     = document.querySelector('.envelope-hint');
     let triggered  = false;
 
+    // MOBILE FIX: unlock audio synchronously on touchstart
+    // This must happen before any async code in the same gesture
+    sealBtn.addEventListener('touchstart', function(e) {
+      unlockAudio(); // synchronous — creates AudioContext right here in the gesture
+    }, { passive: true });
+
     sealBtn.addEventListener('click', open);
     sealBtn.addEventListener('touchend', function(e) {
       e.preventDefault();
@@ -346,6 +363,11 @@
     function open() {
       if (triggered) return;
       triggered = true;
+
+      // Unlock and start music (desktop path — click)
+      unlockAudio();
+      startMusic();
+
       sealBtn.classList.add('cracked');
       if (hint) { hint.style.transition = 'opacity 0.4s ease'; hint.style.opacity = '0'; }
       setTimeout(() => envelope.classList.add('opening'), 300);
@@ -469,6 +491,7 @@
     }, { passive: false });
 
     let yesFired = false;
+
     function handleYes() {
       if (yesFired) return;
       yesFired = true;
@@ -490,8 +513,8 @@
       const dpWrap = document.createElement('div');
       dpWrap.id = 'datePickerWrap';
 
-      let viewYear  = new Date().getFullYear();
-      let viewMonth = new Date().getMonth();
+      let viewYear     = new Date().getFullYear();
+      let viewMonth    = new Date().getMonth();
       let selectedDate = null;
       let selectedTime = null;
 
@@ -510,26 +533,62 @@
         for (let d = 1; d <= daysInMonth; d++) {
           const thisDate   = new Date(viewYear, viewMonth, d);
           const isPast     = thisDate < today;
-          const isSelected = selectedDate && selectedDate.getFullYear() === viewYear && selectedDate.getMonth() === viewMonth && selectedDate.getDate() === d;
+          const isSelected = selectedDate &&
+            selectedDate.getFullYear() === viewYear &&
+            selectedDate.getMonth()    === viewMonth &&
+            selectedDate.getDate()     === d;
           cells += `<div class="dp-cell${isPast ? ' dp-past' : ''}${isSelected ? ' dp-selected' : ''}" data-day="${d}" data-past="${isPast}">${d}</div>`;
         }
-        return `<div class="dp-cal-header"><button class="dp-nav" id="dpPrev">&#8592;</button><span class="dp-month-label">${MONTHS[viewMonth]} ${viewYear}</span><button class="dp-nav" id="dpNext">&#8594;</button></div><div class="dp-grid">${cells}</div>`;
+        return `
+          <div class="dp-cal-header">
+            <button class="dp-nav" id="dpPrev">&#8592;</button>
+            <span class="dp-month-label">${MONTHS[viewMonth]} ${viewYear}</span>
+            <button class="dp-nav" id="dpNext">&#8594;</button>
+          </div>
+          <div class="dp-grid">${cells}</div>`;
       }
 
       function renderTimeSlots() {
-        return TIME_SLOTS.map(t => `<button class="dp-time${selectedTime === t ? ' dp-time-selected' : ''}" data-time="${t}">${t}</button>`).join('');
+        return TIME_SLOTS.map(t =>
+          `<button class="dp-time${selectedTime === t ? ' dp-time-selected' : ''}" data-time="${t}">${t}</button>`
+        ).join('');
       }
 
       function renderConfirm() {
         const ready = selectedDate && selectedTime;
-        const label = ready ? `${MONTHS[selectedDate.getMonth()]} ${selectedDate.getDate()}, ${selectedDate.getFullYear()} · ${selectedTime}` : 'Pick a date and time above';
-        return `<div class="dp-summary${ready ? ' dp-summary-ready' : ''}">${label}</div><button class="dp-confirm${ready ? ' dp-confirm-ready' : ''}" id="dpConfirm" ${ready ? '' : 'disabled'}>Confirm ❤️</button>`;
+        const label = ready
+          ? `${MONTHS[selectedDate.getMonth()]} ${selectedDate.getDate()}, ${selectedDate.getFullYear()} · ${selectedTime}`
+          : 'Pick a date and time above';
+        return `
+          <div class="dp-summary${ready ? ' dp-summary-ready' : ''}">${label}</div>
+          <button class="dp-confirm${ready ? ' dp-confirm-ready' : ''}" id="dpConfirm" ${ready ? '' : 'disabled'}>
+            Confirm ❤️
+          </button>`;
       }
 
       function render() {
-        dpWrap.innerHTML = `<div class="dp-inner"><p class="dp-eyebrow">— when are you free? —</p><div class="dp-cal" id="dpCal">${renderCalendar()}</div><div class="dp-time-wrap" id="dpTimeWrap">${renderTimeSlots()}</div><div class="dp-confirm-wrap" id="dpConfirmWrap">${renderConfirm()}</div></div>`;
-        dpWrap.querySelector('#dpPrev').addEventListener('click', () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } dpWrap.querySelector('#dpCal').innerHTML = renderCalendar(); bindCalCells(); });
-        dpWrap.querySelector('#dpNext').addEventListener('click', () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } dpWrap.querySelector('#dpCal').innerHTML = renderCalendar(); bindCalCells(); });
+        dpWrap.innerHTML = `
+          <div class="dp-inner">
+            <p class="dp-eyebrow">— when are you free? —</p>
+            <div class="dp-cal" id="dpCal">${renderCalendar()}</div>
+            <div class="dp-time-wrap" id="dpTimeWrap">${renderTimeSlots()}</div>
+            <div class="dp-confirm-wrap" id="dpConfirmWrap">${renderConfirm()}</div>
+          </div>`;
+
+        dpWrap.querySelector('#dpPrev').addEventListener('click', () => {
+          viewMonth--;
+          if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+          dpWrap.querySelector('#dpCal').innerHTML = renderCalendar();
+          bindCalCells();
+        });
+
+        dpWrap.querySelector('#dpNext').addEventListener('click', () => {
+          viewMonth++;
+          if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+          dpWrap.querySelector('#dpCal').innerHTML = renderCalendar();
+          bindCalCells();
+        });
+
         bindCalCells();
         bindTimeCells();
       }
@@ -542,7 +601,7 @@
             dpWrap.querySelector('#dpCal').innerHTML = renderCalendar();
             bindCalCells();
             dpWrap.querySelector('#dpConfirmWrap').innerHTML = renderConfirm();
-            bindConfirm();
+            bindConfirmBtn();
           });
         });
       }
@@ -554,18 +613,19 @@
             dpWrap.querySelectorAll('.dp-time').forEach(b => b.classList.remove('dp-time-selected'));
             btn.classList.add('dp-time-selected');
             dpWrap.querySelector('#dpConfirmWrap').innerHTML = renderConfirm();
-            bindConfirm();
+            bindConfirmBtn();
           });
         });
       }
 
-      function integrateConfirm() {
+      // Clean name — no collision with window globals
+      function bindConfirmBtn() {
         const btn = dpWrap.querySelector('#dpConfirm');
         if (!btn || btn.disabled) return;
-        btn.addEventListener('click', () => triggerFinalDelivery(selectedDate, selectedTime, MONTHS, WEEKDAYS));
+        btn.addEventListener('click', () => {
+          triggerFinalDelivery(selectedDate, selectedTime, MONTHS, WEEKDAYS);
+        });
       }
-      // Native assignment backup
-      window.bindConfirm = integrateConfirm;
 
       render();
       document.getElementById('screen-question').appendChild(dpWrap);
@@ -579,80 +639,130 @@
         picker.style.opacity    = '0';
         setTimeout(() => picker.remove(), 700);
       }
-      const dateStr = `${WEEKDAYS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()} · ${time}`;
-      const text    = document.getElementById('finalText');
+
+      const dateStr  = `${WEEKDAYS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()} · ${time}`;
+      const text     = document.getElementById('finalText');
       text.innerHTML = `${dateStr}<br><br><em>I'll pick you up!</em>`;
       setTimeout(() => document.getElementById('finalMsg').classList.add('show'), 500);
 
-      // ════════════════════════════════════════
-      //  EMAILJS PIPELINE EXECUTION
-      // ════════════════════════════════════════
+      // EmailJS — silent send, no alert() breaking the mood
       const templateParams = {
-          name: "Your Crush",
-          message: `She said YES! The date is locked in for: ${dateStr}`
+        name:    'Your Crush',
+        message: 'She said YES! The date is locked in for: ' + dateStr,
       };
 
-      // 1st Param: Your Service ID ('service_b73vtwk')
-      // 2nd Param: REPLACE 'YOUR_TEMPLATE_ID_HERE' with your real Template ID from your dashboard!
       emailjs.send('service_b73vtwk', 'contact', templateParams)
-      .then(() => {
-          alert("🎉 System Connected! Email dispatched perfectly."); 
-      })
-      .catch((err) => {
-          alert("❌ Execution Refused. Details: " + JSON.stringify(err));
-      });
-    }
-
-    function bindConfirm() {
-      if (window.bindConfirm) window.bindConfirm();
+        .then(() => {
+          console.log('EmailJS: notification sent successfully.');
+        })
+        .catch((err) => {
+          console.warn('EmailJS: send failed:', err);
+          // Silent fail — her experience is unaffected even if email doesn't send
+        });
     }
 
     function fireSparks() {
-      const cx = window.innerWidth  / 2;
-      const cy = window.innerHeight / 2;
+      const cx     = window.innerWidth  / 2;
+      const cy     = window.innerHeight / 2;
       const colors = ['#e8c97a','#c9a84c','#b22340','#f5dda0','#ffffff'];
+
       for (let i = 0; i < 60; i++) {
         const spark = document.createElement('div');
         spark.className = 'spark';
         const angle = Math.random() * Math.PI * 2;
         const dist  = 120 + Math.random() * 260;
         const size  = 4 + Math.random() * 8;
-        spark.style.cssText = `left: ${cx}px; top: ${cy}px; width: ${size}px; height: ${size}px; background: ${colors[Math.floor(Math.random() * colors.length)]}; --dx: ${Math.cos(angle) * dist}px; --dy: ${Math.sin(angle) * dist}px; animation-delay: ${Math.random() * 0.3}s; animation-duration: ${0.9 + Math.random() * 0.5}s; filter: blur(${Math.random() > 0.5 ? '0' : '1px'}); box-shadow: 0 0 ${size * 2}px currentColor;`;
+        spark.style.cssText = `
+          left: ${cx}px; top: ${cy}px;
+          width: ${size}px; height: ${size}px;
+          background: ${colors[Math.floor(Math.random() * colors.length)]};
+          --dx: ${Math.cos(angle) * dist}px;
+          --dy: ${Math.sin(angle) * dist}px;
+          animation-delay: ${Math.random() * 0.3}s;
+          animation-duration: ${0.9 + Math.random() * 0.5}s;
+          filter: blur(${Math.random() > 0.5 ? '0' : '1px'});
+          box-shadow: 0 0 ${size * 2}px currentColor;`;
         celebrate.appendChild(spark);
       }
       setTimeout(() => { celebrate.innerHTML = ''; }, 2500);
     }
 
-    const taunts = ["really?", "are you sure?", "try again.", "that button is lying.", "it knows the truth.", "nice try though.", "exhausted yet?", "the yes button misses you."];
+    /* ── no (runaway) ── */
+    const taunts = [
+      'really?', 'are you sure?', 'try again.',
+      'that button is lying.', 'it knows the truth.',
+      'nice try though.', 'exhausted yet?', 'the yes button misses you.',
+    ];
+
     let tauntEl = document.getElementById('taunt');
-    if (!tauntEl) { tauntEl = document.createElement('div'); tauntEl.id = 'taunt'; document.body.appendChild(tauntEl); }
-    let dodges = 0, fled = false, isHome = true, homeTop = 0, homeLeft = 0, returnTimer = null;
+    if (!tauntEl) {
+      tauntEl = document.createElement('div');
+      tauntEl.id = 'taunt';
+      document.body.appendChild(tauntEl);
+    }
+
+    let dodges = 0, fled = false, isHome = true;
+    let homeTop = 0, homeLeft = 0, returnTimer = null;
 
     function showTaunt(txt) {
-      tauntEl.textContent = txt; tauntEl.classList.add('show');
-      clearTimeout(tauntEl._t); tauntEl._t = setTimeout(() => tauntEl.classList.remove('show'), 1700);
+      tauntEl.textContent = txt;
+      tauntEl.classList.add('show');
+      clearTimeout(tauntEl._t);
+      tauntEl._t = setTimeout(() => tauntEl.classList.remove('show'), 1700);
     }
-    function goHome() { btnNo.style.top = homeTop + 'px'; btnNo.style.left = homeLeft + 'px'; isHome = true; }
+
+    function goHome() {
+      btnNo.style.top  = homeTop  + 'px';
+      btnNo.style.left = homeLeft + 'px';
+      isHome = true;
+    }
+
     function dodge() {
-      if (!isHome) return; isHome = false; clearTimeout(returnTimer); dodges++;
-      if (!fled) { const r = btnNo.getBoundingClientRect(); homeTop = r.top; homeLeft = r.left; btnNo.style.top = homeTop + 'px'; btnNo.style.left = homeLeft + 'px'; btnNo.classList.add('fleeing'); fled = true; void btnNo.offsetWidth; }
-      const margin = 16, w = btnNo.offsetWidth;
+      if (!isHome) return;
+      isHome = false;
+      clearTimeout(returnTimer);
+      dodges++;
+
+      if (!fled) {
+        const r  = btnNo.getBoundingClientRect();
+        homeTop  = r.top;
+        homeLeft = r.left;
+        btnNo.style.top  = homeTop  + 'px';
+        btnNo.style.left = homeLeft + 'px';
+        btnNo.classList.add('fleeing');
+        fled = true;
+        void btnNo.offsetWidth;
+      }
+
+      const margin = 16;
+      const w    = btnNo.offsetWidth;
       const newX = margin + Math.random() * Math.max(0, window.innerWidth  - w - margin * 2);
       const newY = margin + Math.random() * Math.max(0, window.innerHeight - btnNo.offsetHeight - margin * 2);
-      btnNo.style.left = newX + 'px'; btnNo.style.top = newY + 'px';
-      const shrink = Math.max(0.6, 1 - dodges * 0.04);
-      btnNo.style.fontSize = Math.max(10, 16 * shrink) + 'px'; btnNo.style.padding = (14 * shrink) + 'px ' + (28 * shrink) + 'px'; btnNo.style.opacity = Math.max(0.3, 1 - dodges * 0.06); btnNo.textContent = dodges > 3 ? 'no?' : 'No';
-      showTaunt(taunts[Math.min(dodges - 1, taunts.length - 1)]); returnTimer = setTimeout(goHome, 900);
+
+      btnNo.style.left     = newX + 'px';
+      btnNo.style.top      = newY + 'px';
+      const shrink         = Math.max(0.6, 1 - dodges * 0.04);
+      btnNo.style.fontSize = Math.max(10, 16 * shrink) + 'px';
+      btnNo.style.padding  = (14 * shrink) + 'px ' + (28 * shrink) + 'px';
+      btnNo.style.opacity  = Math.max(0.3, 1 - dodges * 0.06);
+      btnNo.textContent    = dodges > 3 ? 'no?' : 'No';
+
+      showTaunt(taunts[Math.min(dodges - 1, taunts.length - 1)]);
+      returnTimer = setTimeout(goHome, 900);
     }
+
     btnNo.addEventListener('mouseenter', dodge);
-    btnNo.addEventListener('touchstart', function(e) { e.preventDefault(); dodge(); }, { passive: false });
-    btnNo.addEventListener('click', function(e) { e.preventDefault(); dodge(); });
+    btnNo.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      dodge();
+    }, { passive: false });
+    btnNo.addEventListener('click', function(e) {
+      e.preventDefault();
+      dodge();
+    });
   }
 
-  // ════════════════════════════════════════
-  //  CORE SDK SYSTEM COUPLING
-  // ════════════════════════════════════════
-  // REPLACE 'YOUR_PUBLIC_KEY_HERE' with the real Public key from your Account dashboard!
-  emailjs.init("P0N1mVYMaYicQ25OA");
+  // EmailJS init
+  emailjs.init('P0N1mVYMaYicQ25OA');
 
 })();
