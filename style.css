@@ -245,7 +245,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   font-family: 'Times New Roman', serif;
   font-style: serif;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(255,255,255,0.92);
   letter-spacing: 0.05em;
   position: relative; z-index: 2;
   pointer-events: none;
@@ -393,8 +393,25 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   background: linear-gradient(90deg, transparent, var(--gold));
 }
 
-.next-line:last-child {
+.next-line:last-of-type {
   background: linear-gradient(90deg, var(--gold), transparent);
+}
+
+/* ── bouncing arrow below continue button ── */
+.next-arrow {
+  position: absolute;
+  top: -90px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 22px;
+  color: var(--gold);
+  opacity: 0.99;
+  animation: arrowBounce 1.2s ease-in-out infinite;
+}
+
+@keyframes arrowBounce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%       { transform: translateX(-50%) translateY(6px); }
 }
 
 /* ══════════════════════════════════════════════════
@@ -486,8 +503,8 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   font-style: italic;
   padding: 14px 28px;
   border-radius: 3px;
-  border: 1px solid rgb(255, 250, 250);
-  color: rgba(252, 249, 250, 0.986);
+  border: 1px solid rgb(255,250,250);
+  color: rgba(252,249,250,0.986);
   letter-spacing: 0.03em;
   transition: transform 0.35s cubic-bezier(.2,.8,.2,1),
               left 0.35s cubic-bezier(.2,.8,.2,1),
