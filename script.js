@@ -105,20 +105,32 @@
     return conv;
   }
 
-  const BEAT = 1.15;
+  const BEAT = 1.55;
+
+  // Gymnopedie No. 1 (Satie, public domain) — simplified romantic loop
   const MELODY = [
-    [61, 1.0], [64, 1.0], [68, 2.5], [null, 2.0],
-    [66, 1.0], [64, 1.0], [61, 3.5], [null, 1.5],
-    [61, 0.75], [63, 0.75], [66, 0.75], [68, 2.5], [null, 1.5],
-    [66, 1.0], [63, 1.0], [59, 1.0], [61, 3.5], [null, 3.0],
+    [55, 1.5], [59, 1.5], [62, 1.5], [67, 1.5],
+    [71, 1.5], [74, 1.5], [76, 2.5], [74, 1.5], [71, 1.5], [67, 2.5],
+    [71, 1.5], [67, 1.5], [62, 1.5], [59, 1.5], [55, 3.0], [null, 1.0],
+    [59, 1.5], [62, 1.5], [67, 1.5], [71, 1.5],
+    [74, 2.0], [71, 1.5], [67, 1.5], [62, 2.5], [55, 3.5], [null, 1.5],
   ];
 
-  const LOOP_DURATION = MELODY.reduce((sum, [, d]) => sum + d * BEAT, 0);
+  const CHORDS = [
+    { notes: [43, 47, 50], beats: 12 },  // G2 major
+    { notes: [45, 48, 52], beats: 8 },   // A minor
+    { notes: [43, 47, 50], beats: 10 },  // G major
+    { notes: [40, 43, 47], beats: 8 },   // E minor
+    { notes: [43, 47, 50], beats: 14 },  // G major (resolve)
+  ];
+
+  const MELODY_DURATION = MELODY.reduce((sum, [, d]) => sum + d * BEAT, 0);
+  const CHORD_DURATION  = CHORDS.reduce((sum, c) => sum + c.beats * BEAT, 0);
 
   function scheduleNote(midi, t, dur) {
     const hz      = midiToHz(midi);
-    const sustain = Math.max(dur * BEAT * 1.8, 4.0);
-    const attack  = 0.012;
+    const sustain = Math.max(dur * BEAT * 2.2, 5.0);
+    const attack  = 0.018;
 
     function layer(freq, type, peak, decayMul) {
       const osc  = audioCtx.createOscillator();
@@ -127,28 +139,51 @@
 
       osc.type            = type;
       osc.frequency.value = freq;
-      osc.detune.value    = (Math.random() - 0.5) * 6;
+      osc.detune.value    = (Math.random() - 0.5) * 4;
 
       osc.connect(gDry);
       gDry.connect(masterGain);
       gDry.gain.setValueAtTime(0, t);
       gDry.gain.linearRampToValueAtTime(peak, t + attack);
-      gDry.gain.setValueAtTime(peak * 0.7, t + attack + 0.05);
+      gDry.gain.setValueAtTime(peak * 0.75, t + attack + 0.08);
       gDry.gain.exponentialRampToValueAtTime(0.0001, t + sustain * decayMul);
 
       osc.connect(gWet);
       gWet.connect(reverbNode);
       gWet.gain.setValueAtTime(0, t);
-      gWet.gain.linearRampToValueAtTime(peak * 0.4, t + attack);
-      gWet.gain.exponentialRampToValueAtTime(0.0001, t + sustain * decayMul * 1.3);
+      gWet.gain.linearRampToValueAtTime(peak * 0.45, t + attack);
+      gWet.gain.exponentialRampToValueAtTime(0.0001, t + sustain * decayMul * 1.4);
 
       osc.start(t);
-      osc.stop(t + sustain * decayMul + 0.2);
+      osc.stop(t + sustain * decayMul + 0.3);
     }
 
-    layer(hz,      'sine',     0.26, 1.0);
-    layer(hz * 2,  'sine',     0.07, 0.6);
-    layer(hz / 2,  'triangle', 0.05, 0.5);
+    layer(hz,      'sine',     0.22, 1.0);
+    layer(hz * 2,  'sine',     0.06, 0.7);
+    layer(hz / 2,  'triangle', 0.04, 0.55);
+  }
+
+  function scheduleChord(notes, t, beats) {
+    const sustain = beats * BEAT * 1.15;
+    notes.forEach((midi, i) => {
+      const hz   = midiToHz(midi);
+      const peak = i === 0 ? 0.055 : 0.035;
+      const osc  = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.value = hz;
+      osc.connect(gain);
+      gain.connect(reverbNode);
+
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(peak, t + 0.4);
+      gain.gain.setValueAtTime(peak * 0.85, t + 0.6);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + sustain);
+
+      osc.start(t);
+      osc.stop(t + sustain + 0.2);
+    });
   }
 
   function scheduleMelody(startTime) {
@@ -157,15 +192,30 @@
     MELODY.forEach(([midi, dur]) => {
       const noteDur = dur * BEAT;
       if (midi !== null) {
-        const jitter = (Math.random() - 0.5) * 0.028;
+        const jitter = (Math.random() - 0.5) * 0.022;
         scheduleNote(midi, t + jitter, dur);
       }
       t += noteDur;
     });
     if (!musicStopped) {
-      const delay = (startTime + LOOP_DURATION - audioCtx.currentTime - 0.2) * 1000;
+      const delay = (startTime + MELODY_DURATION - audioCtx.currentTime - 0.2) * 1000;
       setTimeout(() => {
         if (!musicStopped) scheduleMelody(audioCtx.currentTime + 0.05);
+      }, Math.max(0, delay));
+    }
+  }
+
+  function scheduleChords(startTime) {
+    if (!audioCtx || musicStopped) return;
+    let t = startTime;
+    CHORDS.forEach(({ notes, beats }) => {
+      scheduleChord(notes, t, beats);
+      t += beats * BEAT;
+    });
+    if (!musicStopped) {
+      const delay = (startTime + CHORD_DURATION - audioCtx.currentTime - 0.2) * 1000;
+      setTimeout(() => {
+        if (!musicStopped) scheduleChords(audioCtx.currentTime + 0.05);
       }, Math.max(0, delay));
     }
   }
@@ -203,8 +253,10 @@
 
     // Resume in case browser suspended it (common on iOS)
     const doStart = () => {
-      masterGain.gain.linearRampToValueAtTime(0.75, audioCtx.currentTime + 3.0);
-      scheduleMelody(audioCtx.currentTime + 0.3);
+      masterGain.gain.linearRampToValueAtTime(0.7, audioCtx.currentTime + 3.5);
+      const t = audioCtx.currentTime + 0.3;
+      scheduleMelody(t);
+      scheduleChords(t);
     };
 
     if (audioCtx.state === 'suspended') {
@@ -505,7 +557,7 @@
         <div class="cine-shockwave"></div>
         <div class="cine-shockwave cine-shockwave-2"></div>
         <div class="cine-shockwave cine-shockwave-3"></div>
-        <p class="cine-text">yes.</p>
+        <p class="cine-text">Amazing.</p>
         <div class="cine-heart" aria-hidden="true">❤</div>`;
       document.body.appendChild(overlay);
 
